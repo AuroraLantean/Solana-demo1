@@ -8,16 +8,41 @@ use solana_program::{
     program_error::ProgramError,
     pubkey::Pubkey,
 };
+use std::io::ErrorKind::InvalidData;
 
+//------------------==
+const DUMMY_ADDR1: &str = "abcdefghijabcdefghijabcdefghijabcdefghijabcd";
+const DUMMY_AMOUNT1: u32 = 0;
+const DUMMY_AMOUNT2: u64 = 0;
 /// Define the type of state stored in accounts
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
-pub struct DataStorage {
+pub struct Struct1 {
+    //pub strU8Array: Vec<u8>,
+    //pub bnU8Array: Vec<u8>,
+    //pub boolU8Array: Vec<u8>,
+    //pub isInitialized: u8,
     pub addr1: String,
-    pub addr2: String,
-    pub addrs: Vec<String>,
-    pub amount: u32,
-    //pub is_enabled: bool,
+    pub amount1: u32,
+    pub amount2: u64,
 }
+pub fn get_init_struct1() -> Struct1 {
+  Struct1{ 
+    //strU8Array: [0, 0, 0].to_vec(),
+    //bnU8Array: [0, 0, 0].to_vec(),
+    //boolU8Array: [0, 0, 0].to_vec(),
+    //isInitialized: 0,
+    addr1: String::from(DUMMY_ADDR1),
+    amount1: DUMMY_AMOUNT1,
+    amount2: DUMMY_AMOUNT2,
+  }
+}
+/*pub fn get_init_struct1s() -> Vec<Struct1> {
+  let mut messages = Vec::new();
+  for _ in 0..20 {
+      messages.push(get_init_struct1());
+  }
+  return messages;
+}*/
 
 entrypoint!(process_instruction);
 /*needs this also in Cargo.toml:
@@ -44,46 +69,58 @@ pub fn process_instruction(
         msg!("account.owner != program_id");
         return Err(ProgramError::IncorrectProgramId);
     }
-
-    msg!("Start instruction decode");
+    sol_log_compute_units();
+    msg!("about to decode instruction data");
     //passing instruction_data as binary instance of the data from the client side
-    let mut data_storage = DataStorage::try_from_slice(instruction_data).map_err(|err| {
-      msg!("data_storage decoding failed, {:?}", err);
+/*Use try_from_slice_unchecked to deserialize from buffers that are larger than the exact size of the serialized object. try_from_slice panics when the buffer is not exactly the right size.
+*/
+
+    let acct_data_decoded = match Struct1::try_from_slice(&account.data.borrow_mut()) {
+        Ok(data) => data,//to be of type `Struct1`
+        Err(err) => {
+            if err.kind() == InvalidData {
+                msg!("InvalidData so initializing account data");
+                get_init_struct1()
+            } else {
+                panic!("Unknown error decoding account data {:?}", err)
+            }
+        }
+    };
+    msg!("acct_data_decoded: {:?}", acct_data_decoded);
+
+    let instruction_data_decoded = Struct1::try_from_slice(instruction_data).map_err(|err| {
+      msg!("instruction_data decoding failed,{:?}",err);
       ProgramError::InvalidInstructionData
     })?;
-    msg!("input data_storage: {:?}", data_storage);
+    msg!("instruction_data_decoded: {:?}", instruction_data_decoded);
 
     //take the same instance of data from the actual account we need to update, check if it is of the same size as the instruction data
     let data = &mut &mut account.data.borrow_mut();
+
     /*-----------== orinigal code
     let mut greeting_account = GreetingAccount::try_from_slice(&account.data.borrow())?;
-    greeting_account.counter += 1;
     greeting_account.serialize(&mut &mut account.data.borrow_mut()[..])?;
-
-    msg!("Greeted{} time(s)!", greeting_account.counter);
     */
-    msg!("About to replace data with new instruction");
-    //copy the argument data into the account data, data sizes have to match!
-    // if(true){
-      
-    // }
 
+    //-------------------== Update Data
+    msg!("about to update data.");
+    //initial instruction_data.len() is zero
     data[..instruction_data.len()].copy_from_slice(&instruction_data);
-
+    //data[..saved_data_encoded.len()].copy_from_slice(&saved_data_encoded); 
     sol_log_compute_units();
-    msg!("data_storage.amount: {}", data_storage.amount);
-    data_storage.amount += 1;
-    msg!("data_storage.amount: {}", data_storage.amount);
     //---------------==original code
-    /*let mut greeting_account = DataStorage::try_from_slice(&account.data.borrow())?;
+    /*let mut greeting_account = Struct1::try_from_slice(&account.data.borrow())?;
     greeting_account.serialize(&mut &mut account.data.borrow_mut()[..])?;
     */
-
+    let updated_data = Struct1::try_from_slice(data)?;
+    msg!("updated_data: {:?}", updated_data);
+    sol_log_compute_units();
+    msg!("End program.");
     Ok(())
 }
 /** to deploy
-$ yarn run clean:program-rust
-$ yarn run build:program-rust
+$ yarn run clean:program-rust   ... solclean
+$ yarn run build:program-rust   ... solbuild
 "build:program-rust": "cargo build-bpf --manifest-path=./src/program-rust/Cargo.toml --bpf-out-dir=dist/program"
 
 $ solana-test-validator --log   ... solnode
@@ -93,7 +130,7 @@ $ solana balance
 $ solana airdrop 10
 $ solana program deploy ./dist/program/helloworld.so
 ... Program Id: 
-4vxXyKhBVksxZXxCs8oNa3yHGeQWo9ZYA6Qa6H36gm3u
+FSmbXWTKMfNG4yT2zEWXEHbLnCukbr7CxTAKwqmceas5
 
 ./path-to-program/program.so
 ./path-to-program/program-keypair.json
@@ -132,21 +169,21 @@ mod test {
         let accounts = vec![account];
 
         assert_eq!(
-            DataStorage::try_from_slice(&accounts[0].data.borrow())
+            Struct1::try_from_slice(&accounts[0].data.borrow())
                 .unwrap()
                 .counter,
             0
         );
         process_instruction(&program_id, &accounts, &instruction_data).unwrap();
         assert_eq!(
-            DataStorage::try_from_slice(&accounts[0].data.borrow())
+            Struct1::try_from_slice(&accounts[0].data.borrow())
                 .unwrap()
                 .counter,
             1
         );
         process_instruction(&program_id, &accounts, &instruction_data).unwrap();
         assert_eq!(
-            DataStorage::try_from_slice(&accounts[0].data.borrow())
+            Struct1::try_from_slice(&accounts[0].data.borrow())
                 .unwrap()
                 .counter,
             2
